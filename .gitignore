@@ -1,0 +1,12 @@
+# exclude
+.vscode
+*.pyc
+code/__pycache__
+code/.pytest_cache
+data/
+gis/
+log/
+figures/*
+
+# include select figures to put in README
+!figures/fig_array_response.png
