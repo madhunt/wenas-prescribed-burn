@@ -10,6 +10,7 @@ from obspy.core.utcdatetime import UTCDateTime
 #from obspy.geodetics.base import gps2dist_azimuth
 
 import settings
+settings.set_paths('laptop')
 
 
 
@@ -55,12 +56,15 @@ def load_mseed_data(path_data, path_coords, array_str=None,
         data += obspy.read(path_mseed)
 
 
-    # (2) filter data if desired (needs to happen before data.merge)
+    # (2) filter and detrend data if desired (needs to happen before data.merge)
     if freq_min != None and freq_max != None: # bandpass
+        #data = data.detrend('linear')
         data = data.filter('bandpass', freqmin=freq_min, freqmax=freq_max)
     elif freq_min != None:   # high pass
-        data = data.filter('highpass', freq=freq_min)
+        data = data.detrend('linear')
+        data = data.filter('highpass', freq=freq_min, corners=6)
     elif freq_max != None:   # low pass
+        #data = data.detrend('linear')
         data = data.filter('lowpass', freq=freq_max)
 
     # (3) merge dates and trim data
@@ -94,12 +98,12 @@ def load_mseed_data(path_data, path_coords, array_str=None,
 
 
 
-def filename_beamform(array_str, time_start, freq_min, freq_max):
-    freq_str = f"{freq_min}-{freq_max}"
-    date_str = f"{time_start.year}-{time_start.month}-{time_start.day}"
+def filename_beamform(array_str, date, freq_min, freq_max):
+    freq_str = f"{freq_min}-{freq_max}Hz"
+    date_str = date.strftime('%Y-%m-%d')
     file_str = f"{array_str}_{date_str}_{freq_str}"
-    #path_processed = os.path.join(settings.path_home, "data", "processed", f"processed_output_{file_str}.pkl")
-    return file_str
+    path_processed = os.path.join(settings.path_processed, f"processed_output_{file_str}.pkl")
+    return file_str, path_processed
 
 
 def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, slow_min=1/0.40, slow_max=1/0.30):
@@ -109,13 +113,11 @@ def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, s
     INPUTS
     RETURNS
     '''
-    
-
     # load mulitple files if needed (otherwise, will just load 1)
     beamform_output = []
-    for i in range(time_stop.day - time_start.day + 1):
-        t = time_start + datetime.timedelta(days=i)
-        path_processed = filename_beamform(array_str, t, freq_min, freq_max)
+    dates = pd.date_range(start=time_start.date(), end=time_stop.date(), freq='D')
+    for date in dates:    
+        _, path_processed = filename_beamform(array_str, date, freq_min, freq_max)
         outputi = pd.read_pickle(path_processed)
         beamform_output.append(outputi)
     beamform_output = pd.concat(beamform_output)

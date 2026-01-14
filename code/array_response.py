@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import os
 
-import utils, settings
+import utils.plot as plot, settings
 settings.set_paths('laptop')
 
 
@@ -52,7 +52,7 @@ def main():
 
 
         # calculate and plot array response
-        res = utils.plot_array_response(coords_array, flim=20, ax=ax[i,1])
+        res = plot.plot_array_response(coords_array, flim=20, ax=ax[i,1])
 
         # plot circles at relevant freqs
         plot_wavenum_circles(freqs=[2,10,20], ax=ax[i,1])

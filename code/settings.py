@@ -23,7 +23,7 @@ def set_paths(location):
     else:
         raise ValueError(f"Unknown location: {location}")
 
-    #path_processed = os.path.join(path_home, "data", "processed")
+    path_processed = os.path.join(path_home, "data", "processed")
     path_mseed = os.path.join(path_home, "data", "mseed")
     path_coords = os.path.join(path_home, "data", "gps", "wenas_burn_coords.csv")
     #path_output = os.path.join(path_home, "data", "output")

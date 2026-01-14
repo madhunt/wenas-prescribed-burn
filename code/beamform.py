@@ -8,62 +8,61 @@ from obspy.signal.array_analysis import array_processing
 #from concurrent.futures import ProcessPoolExecutor
 #from obspy.core.util import AttribDict
 from matplotlib.dates import num2date
+import pytz
 
-import utils, settings
+import settings
+import utils.load_data as load_data
+import utils.plot as plot
 
 def main(path_home, path_coords, array_str,
          gem_include=None, gem_exclude=None,
          time_start=None, time_stop=None, 
-         freqmin=None, freqmax=None):
+         freq_min=None, freq_max=None):
 
-    path_data = os.path.join(path_home, "data", array_str, "mseed")
-    filt_freq_str = f"{freqmin}_{freqmax}"
-    filt_date_str = f"{time_start.year}-{time_start.month}-{time_start.day}"
-    file_str = f"{array_str}_{filt_date_str}_{filt_freq_str}"
+    path_data = os.path.join(path_home, "data", "mseed")
+    #filt_freq_str = f"{freq_min}_{freq_max}"
+    #filt_date_str = f"{time_start.year}-{time_start.month}-{time_start.day}"
+    #file_str = f"{array_str}_{filt_date_str}_{filt_freq_str}"
 
-    path_processed = os.path.join(path_home, "data", array_str, "processed", 
-                    f"processed_output_{file_str}.pkl")
+    #path_processed = os.path.join(path_home, "data", "processed", 
+    #                f"processed_output_{file_str}.pkl")
+    file_str, path_processed = load_data.filename_beamform(array_str, time_start, freq_min, freq_max)
 
     # print progress to log file
     #with open(os.path.join(path_home, "code", "log", "pylog.txt"), "a") as f:
-    print((f"{datetime.datetime.now()} \t\t Loading and Filtering Data ")+
-            (f"({file_str})"))
-    print("    "+path_data)
+    print(f"{datetime.datetime.now()} \t\t Loading and Filtering Data ")
+    print("    "+path_processed)
 
     # load data
-    data = utils.load_mseed_data(path_data, path_coords=path_coords,
+    data = load_data.load_mseed_data(path_data, path_coords=path_coords,
                      array_str=array_str,
                            gem_include=gem_include, gem_exclude=gem_exclude, 
                            time_start=time_start, time_stop=time_stop,
-                           freqmin=freqmin, freqmax=freqmax)
+                           freq_min=freq_min, freq_max=freq_max)
     
     # print progress to log file
     #with open(os.path.join(path_home, "code", "log", "pylog.txt"), "a") as f:
-    print((f"{datetime.datetime.now()} \t\t Processing Data ")+
-            (f"({file_str})"))#, file=f)
+    print(f"{datetime.datetime.now()} \t\t Processing Data ")
     print("    "+path_processed)#, file=f)
 
     # fiter and beamform 
     output = process_data(data, path_processed, 
-                            time_start=None, time_stop=None, 
-                            freqmin=freqmin, freqmax=freqmax)
+                            #time_start=None, time_stop=None, 
+                            freq_min=freq_min, freq_max=freq_max)
     
-
-
     # print progress to log file
     #with open(os.path.join(path_home, "code", "log", "pylog.txt"), "a") as f:
-    print((f"{datetime.datetime.now()} \t\t Plotting Backazimuth ")+ 
-            (f"({file_str})"))
-    print("    "+os.path.join(path_home, "figures", f"backaz_{file_str}.png"))
+    print(f"{datetime.datetime.now()} \t\t Plotting Backazimuth ")
 
-    # plot backaz time series
-    utils.plot_backaz(output, path_home, 
-                            f"{array_str} Array, Filtered {freqmin} to {freqmax} Hz", file_str)
+    ## plot backaz time series
+    #plot.plot_backaz(output, path_home, 
+    #                        f"{array_str} Array, Filtered {freq_min} to {freq_max} Hz", file_str)
     
     return
 
 
-def process_data(data, path_processed=None, time_start=None, time_stop=None, freqmin=None, freqmax=None):
+def process_data(data, path_processed=None, #time_start=None, time_stop=None, 
+                 freq_min=None, freq_max=None):
     '''
     Run obspy array_processing() function to beamform data. Save in .npy format to specified 
     location. Returns output as np array, with backazimuths from 0-360.
@@ -80,11 +79,14 @@ def process_data(data, path_processed=None, time_start=None, time_stop=None, fre
     '''
     #FIXME doc string above
 
+    #TODO
+    #TODO
+    #TODO MAKE THIS WORK WITH DATETIMES NOT OBSPY DATETIMES!!
     # if times are not provided, use max/min start and end times from gems
-    if time_start == None:
-        time_start = max([trace.stats.starttime for trace in data])
-    if time_stop == None:
-        time_stop = min([trace.stats.endtime for trace in data])
+    #if time_start == None:
+    time_start = max([trace.stats.starttime for trace in data])
+    #if time_stop == None:
+    time_stop = min([trace.stats.endtime for trace in data])
 
     
     #FIXME can clean this up when these change
@@ -94,7 +96,7 @@ def process_data(data, path_processed=None, time_start=None, time_stop=None, fre
         # sliding window
         win_len=60, win_frac=0.50,
         # frequency
-        frqlow=freqmin, frqhigh=freqmax, prewhiten=0,
+        frqlow=freq_min, frqhigh=freq_max, prewhiten=0,
         # output restrictions
         semb_thres=-1e9, vel_thres=-1e9, timestamp='mlabday',
         stime=time_start, etime=time_stop)
@@ -128,20 +130,32 @@ def process_data(data, path_processed=None, time_start=None, time_stop=None, fre
 if __name__ == "__main__":
 
     settings.set_paths('laptop')
+
     array_str = 'A'
-    gem_exclude = None
+    gem_exclude = None    
+    #array_str = 'B'
+    #gem_exclude = ['123']
+    #array_str = 'C'
+    #gem_exclude = None
+    #array_str = 'D'
+    #gem_exclude = ['005', '086', '368']
 
+    freq_min = 8
+    freq_max = 16
 
-    time_start = UTCDateTime(2025, 10, 6, 0, 0, 0)
-    time_stop = UTCDateTime(2025, 10, 11, 0, 0, 0)
-    freqmin = 2
-    freqmax = 10
+    time_start = datetime.datetime(2025, 10, 6, 0, 0, 0, tzinfo=pytz.timezone('UTC'))
+    ndays = 6
+    time_start_list = [time_start + datetime.timedelta(days=x) for x in range(ndays)]
+    time_stop_list = [t + datetime.timedelta(days=1) for t in time_start_list]
 
+    for i in range(ndays):
+        time_start = time_start_list[i]
+        time_stop = time_stop_list[i]
     
-    main(settings.path_home, settings.path_coords, array_str,
-         gem_include=None, gem_exclude=gem_exclude,
-         time_start=time_start, time_stop=time_stop, 
-         freqmin=freqmin, freqmax=freqmax)
+        main(settings.path_home, settings.path_coords, array_str,
+            gem_include=None, gem_exclude=gem_exclude,
+            time_start=time_start, time_stop=time_stop, 
+            freq_min=freq_min, freq_max=freq_max)
 
 
 
