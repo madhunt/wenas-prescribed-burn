@@ -12,7 +12,9 @@ import pytz
 
 import settings
 import utils.load_data as load_data
-import utils.plot as plot
+#import utils.plot as plot
+
+settings.set_paths('laptop')
 
 def main(path_home, path_coords, array_str,
          gem_include=None, gem_exclude=None,
@@ -20,16 +22,9 @@ def main(path_home, path_coords, array_str,
          freq_min=None, freq_max=None):
 
     path_data = os.path.join(path_home, "data", "mseed")
-    #filt_freq_str = f"{freq_min}_{freq_max}"
-    #filt_date_str = f"{time_start.year}-{time_start.month}-{time_start.day}"
-    #file_str = f"{array_str}_{filt_date_str}_{filt_freq_str}"
-
-    #path_processed = os.path.join(path_home, "data", "processed", 
-    #                f"processed_output_{file_str}.pkl")
     file_str, path_processed = load_data.filename_beamform(array_str, time_start, freq_min, freq_max)
 
     # print progress to log file
-    #with open(os.path.join(path_home, "code", "log", "pylog.txt"), "a") as f:
     print(f"{datetime.datetime.now()} \t\t Loading and Filtering Data ")
     print("    "+path_processed)
 
@@ -47,12 +42,11 @@ def main(path_home, path_coords, array_str,
 
     # fiter and beamform 
     output = process_data(data, path_processed, 
-                            #time_start=None, time_stop=None, 
+                            #time_start=time_start, time_stop=time_stop, 
                             freq_min=freq_min, freq_max=freq_max)
     
     # print progress to log file
     #with open(os.path.join(path_home, "code", "log", "pylog.txt"), "a") as f:
-    print(f"{datetime.datetime.now()} \t\t Plotting Backazimuth ")
 
     ## plot backaz time series
     #plot.plot_backaz(output, path_home, 
@@ -61,7 +55,7 @@ def main(path_home, path_coords, array_str,
     return
 
 
-def process_data(data, path_processed=None, #time_start=None, time_stop=None, 
+def process_data(data, path_processed=None, time_start=None, time_stop=None, 
                  freq_min=None, freq_max=None):
     '''
     Run obspy array_processing() function to beamform data. Save in .npy format to specified 
@@ -78,15 +72,16 @@ def process_data(data, path_processed=None, #time_start=None, time_stop=None,
             relative power (semblance), absolute power, backazimuth (from 0-360), and slowness (in s/km).
     '''
     #FIXME doc string above
-
-    #TODO
-    #TODO
-    #TODO MAKE THIS WORK WITH DATETIMES NOT OBSPY DATETIMES!!
     # if times are not provided, use max/min start and end times from gems
-    #if time_start == None:
-    time_start = max([trace.stats.starttime for trace in data])
-    #if time_stop == None:
-    time_stop = min([trace.stats.endtime for trace in data])
+        # NOTE this can lead to data gaps if one gem started late!!
+    if time_start == None:
+        time_start = max([trace.stats.starttime for trace in data])
+    else:
+        time_start = UTCDateTime(time_start)
+    if time_stop == None:
+        time_stop = min([trace.stats.endtime for trace in data])
+    else:
+        time_stop = UTCDateTime(time_stop)
 
     
     #FIXME can clean this up when these change
@@ -124,38 +119,44 @@ def process_data(data, path_processed=None, #time_start=None, time_stop=None,
 
 
 
-
-
-
 if __name__ == "__main__":
 
-    settings.set_paths('laptop')
-
-    array_str = 'A'
-    gem_exclude = None    
-    #array_str = 'B'
-    #gem_exclude = ['123']
-    #array_str = 'C'
+    #array_str = 'NW'
     #gem_exclude = None
-    #array_str = 'D'
-    #gem_exclude = ['005', '086', '368']
+    #array_str = 'NC'
+    #gem_exclude = ['NC20']
+    #array_str = 'NE'
+    #gem_exclude = None
+    #array_str = 'SC'
+    #gem_exclude = #CHECK NOTEBOOK 16 JAN# ['SC05', 'SC14', 'SC20']
 
-    freq_min = 8
-    freq_max = 16
-
-    time_start = datetime.datetime(2025, 10, 6, 0, 0, 0, tzinfo=pytz.timezone('UTC'))
-    ndays = 6
-    time_start_list = [time_start + datetime.timedelta(days=x) for x in range(ndays)]
-    time_stop_list = [t + datetime.timedelta(days=1) for t in time_start_list]
-
-    for i in range(ndays):
-        time_start = time_start_list[i]
-        time_stop = time_stop_list[i]
+    freq_min = 4
+    freq_max = 8
     
-        main(settings.path_home, settings.path_coords, array_str,
-            gem_include=None, gem_exclude=gem_exclude,
-            time_start=time_start, time_stop=time_stop, 
-            freq_min=freq_min, freq_max=freq_max)
+    array_str = 'SC'
+    gem_exclude = ['SC05', 'SC14', 'SC20', 'SC09', 'SC03']
+    time_start = datetime.datetime(2025, 10, 7, 0, 0, 0, tzinfo=pytz.timezone('UTC'))
+    time_stop = datetime.datetime(2025, 10, 8, 0, 0, 0, tzinfo=pytz.timezone('UTC'))
+
+    main(settings.path_home, settings.path_coords, array_str,
+        gem_include=None, gem_exclude=gem_exclude,
+        time_start=time_start, time_stop=time_stop, 
+        freq_min=freq_min, freq_max=freq_max)
+
+    
+    #ndays = 6
+    #time_start = datetime.datetime(2025, 10, 6, 0, 0, 0, tzinfo=pytz.timezone('UTC'))
+    #time_start_list = [time_start + datetime.timedelta(days=x) for x in range(ndays)]
+    #time_stop_list = [t + datetime.timedelta(days=1) for t in time_start_list]
+
+    #for i in range(nhours):
+    #    time_start = time_start_list[i]
+    #    time_stop = time_stop_list[i]
+    
+    #    main(settings.path_home, settings.path_coords, array_str,
+    #        gem_include=None, gem_exclude=gem_exclude,
+    #        time_start=time_start, time_stop=time_stop, 
+    #        freq_min=freq_min, freq_max=freq_max)
 
 
 
