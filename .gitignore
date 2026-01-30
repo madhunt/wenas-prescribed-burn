@@ -10,3 +10,4 @@ figures/*
 
 # include select figures to put in README
 !figures/fig_array_response.png
+!figures/fig_network_response.png
