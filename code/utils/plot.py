@@ -1,12 +1,13 @@
 #!/usr/bin/python3
 '''Utility functions for plotting.'''
 
-import obspy, os
+import obspy, os, rasterio, pyproj
 import numpy as np
 #import matplotlib.colors as colors
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import obspy.signal.array_analysis
+import rasterio.warp
 
 
 def plot_array_response(coords, flim, ax):
@@ -44,64 +45,91 @@ def plot_array_response(coords, flim, ax):
 
 
 
-def plot_backaz(output, path_home, subtitle_str, file_str=None, fig=None, ax=None):
-    #TODO change path_home to path_figures
+
+
+
+def read_dem(path_dem, bounds_region):
     '''
-    Plot backazimuth over time from output of array processing. 
-    INPUTS:
-        output : pandas df : Result from beamforming with the columns 
-            Time (datetime), Semblance, Abs Power, Backaz (0-360), and Slowness.
-        path_home : str : Path to main dir. Figure will be saved in "figures" subdir.
-        subtitle_str : str : Subtitle for plot. Usually contains bandpass frequencies 
-            (e.g. "Filtered 24-32 Hz")
-        file_str : str or None : String to append on end of filename to uniquely save figure 
-            (e.g. "24.0_32.0"). If None, function returns a handle to the figure and axes, and does 
-            NOT save the figure. 
-    RETURNS:
-        If file_str=None, returns handle to the figure and axes. Figure is NOT saved.
-        Otherwise, figure is saved as path_home/figures/backaz_{file_str}.png
+    Reads in DEM from .tif file.
+    INPUTS
+        path_dem        : str           : Path to DEM .tif file that includes region of interest.
+        bounds_region   : list of float : UTM boundary of region of interest within DEM. In UTM 
+            coordinates as [min_easting, max_easting, min_northing, max_northing].
+    RETURNS
+        easting         : np array [n_north, n_east]: Meshgrid of easting coordinates in UTM where elev is sampled.
+        northing        : np array [n_north, n_east]: Meshgrid of northing coordinates in UTM where elev is sampled.
+        elev            : np array [n_north, n_east]: DEM elevation cropped to region of interest and reprojected in 
+            UTM coordinate reference system.
+        target_crs      : str           : Final Coordinate Reference System (CRS) of the region in UTM.
     '''
-    # sort by ascending semblance so brightest points are plotted on top
-    output = output.sort_values(by="Semblance", ascending=True)
+    with rasterio.open(path_dem) as src:
+        # get coordinate reference system (CRS) in UTM coords
+        bounds_dem = src.bounds
+        center_lon = (bounds_dem.left + bounds_dem.right) / 2
+        center_lat = (bounds_dem.bottom + bounds_dem.top) / 2
+        utm_zone = int((center_lon+180)/6)+1
+        hemi = 'north' if center_lat >=0 else 'south'
+        target_crs = f"EPSG:{32600+utm_zone if hemi=='north' else 32700+utm_zone}"
+
+        # transform bounds of region of interest from UTM to original CRS of DEM
+        transformer = pyproj.Transformer.from_crs(target_crs, src.crs, always_xy=True)
+        min_lon, max_lat = transformer.transform(bounds_region[0], bounds_region[3])
+        max_lon, min_lat = transformer.transform(bounds_region[1], bounds_region[2])
+
+        # create a window around region of interest in original CRS
+        window = rasterio.windows.from_bounds(left=min_lon, bottom=min_lat, 
+                                              right=max_lon, top=max_lat, 
+                                              transform=src.transform)
+        # crop DEM to region of interest and read in
+        elev_crop = src.read(1, window=window)
+        transform_crop = src.window_transform(window)
+
+        # get bounds of cropped region and calc new reprojection transform
+        bounds_crop = rasterio.windows.bounds(window, src.transform)
+        transform_utm, width, height = rasterio.warp.calculate_default_transform(src.crs, target_crs, 
+                                                                                 elev_crop.shape[1], elev_crop.shape[0], 
+                                                                                 *bounds_crop)
+        # reproject cropped DEM to UTM CRS and get elevation
+        elev = np.empty((height, width), dtype=src.dtypes[0])
+        rasterio.warp.reproject(source=elev_crop, 
+                                destination=elev, 
+                                src_transform=transform_crop, 
+                                src_crs=src.crs, 
+                                dst_transform=transform_utm, 
+                                dst_crs=target_crs, 
+                                resampling=rasterio.warp.Resampling.bilinear)
+
+        # get meshgrid of easting and northing in UTM
+        x_coords = np.arange(width) * transform_utm.a + transform_utm.c
+        y_coords = np.arange(height) * transform_utm.e + transform_utm.f
+        easting, northing = np.meshgrid(x_coords, y_coords)
+        return easting, northing, elev, target_crs
 
 
-    # create figure
-    if fig == None and ax ==None:
-        fig, ax = plt.subplots(1, 1, figsize=[7, 5], tight_layout=True)
+def plot_contours_from_dem(ax, easting_dem, northing_dem, elev_dem, contour_int=20):
+    '''
+    Plots contour intervals from DEM on specified figure axis. 
+    INPUTS
+        ax              : pyplot axis               : Matplotlib axes to plot contour intervals on.
+        easting_dem     : np array [n_north, n_east]: Meshgrid of easting coordinates of DEM. Each column 
+            contains n_north elements of the same easting coordinate.
+        northing_dem    : np array [n_north, n_east]: Meshgrid of northing coordinates of DEM.
+        elev_dem        : np array [n_north, n_east]: Elevation of DEM measured at each coordinate in 
+            easting_dem and northing_dem.
+        contour_int     : int                       : Desired contour interval spacing in meters. Default is 20 m.
+    RETURNS
+        Contour intervals plotted on specified axis..
+    '''
+    # create contour intervals
+    min_elev = np.nanmin(elev_dem)
+    max_elev = np.nanmax(elev_dem)
+    contour_levels = np.arange(contour_int * np.floor(min_elev/contour_int),
+                               contour_int * np.ceil(max_elev/contour_int) + contour_int, 
+                               step=contour_int)
 
-    im = ax.scatter(output.index, output['Backaz'], c=output["Semblance"],
-                    alpha=0.7, edgecolors='none', cmap='plasma',
-                    vmin=0, vmax=1)
-    cbar = fig.colorbar(im, ax=ax)
-    cbar.set_ticks([0, 0.5, 1])
-    cbar.set_ticklabels(['0', '0.5', '1'])
-    cbar.ax.minorticks_off()
-    cbar.set_label("Semblance")
+    # add contours to figure
+    ax.contour(easting_dem, northing_dem, elev_dem, 
+               levels=contour_levels, 
+               colors='grey', linewidths=0.8)
 
-    # format y-axis
-    ax.set_ylabel("Backazimuth [$^o$]")
-    ax.set_ylim([0, 360])
-    ax.set_yticks(ticks=np.arange(0, 360+60, 60))
-
-    # format x-axis
-    ax.set_xlabel("Time (UTC)")
-    ax.set_xlim([output.index.min(), output.index.max()])
-    hours_num = (output.index.max() - output.index.min()).total_seconds() / 3600
-    tick_spacing = 2#int(np.ceil((hours_num / 15))) # make x-axis look nice (good number of ticks)
-    ax.xaxis.set_major_locator(mdates.HourLocator(byhour=range(24), interval=tick_spacing))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d %H:%M", tz="UTC"))#tz="US/Pacific"))
-    fig.autofmt_xdate()
-
-    # add titles
-    fig.suptitle(f"Backazimuth")
-    ax.set_title(subtitle_str, fontsize=10)
-
-    if file_str == None:
-        return fig, ax
-    else: 
-        # save figure
-        plt.savefig(os.path.join(path_home, "figures", f"backaz_{file_str}.png"), dpi=500)
-        plt.close()
-        return
-
-
+    return
