@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 '''Utility functions for loading data.'''
 
-import glob, obspy, os, glob
+import obspy, os, glob, pytz
 import pandas as pd
 import numpy as np
 import datetime
@@ -68,8 +68,12 @@ def load_mseed_data(path_data, path_coords, array_str=None,
         data = data.filter('lowpass', freq=freq_max)
 
     # (3) merge dates and trim data
-    data = data.merge(method=0) # merge, discarding overlaps and leaving gaps
     data = data.trim(starttime=UTCDateTime(time_start), endtime=UTCDateTime(time_stop), keep_empty_traces=False)
+    data = data.merge(method=0) # merge, discarding overlaps and leaving gaps
+
+    # get rid of any stations that differ by start/end times by more than an hour
+    #TODO this seems arbitrary... is there a better way?
+
     
     # (4) add coordinates to traces
     coords = pd.read_csv(path_coords)
@@ -87,11 +91,11 @@ def load_mseed_data(path_data, path_coords, array_str=None,
     
     # (5) filter by gem station ID (only use specified subset)
     if gem_include != None:
-        gem_include_station = coords[coords['SN'].isin(gem_include)]['Station'].to_list()
+        gem_include_station = coords[coords['Station'].isin(gem_include)]['Station'].to_list()
         data = obspy.Stream([trace for trace in data.traces if trace.stats['station'] in gem_include_station])
     if gem_exclude != None:
         # convert gem SNs (in exclude list) to stations
-        gem_exclude_station = coords[coords['SN'].isin(gem_exclude)]['Station'].to_list()
+        gem_exclude_station = coords[coords['Station'].isin(gem_exclude)]['Station'].to_list()
         data = obspy.Stream([trace for trace in data.traces if trace.stats['station'] not in gem_exclude_station])
 
     return data
@@ -102,11 +106,11 @@ def filename_beamform(array_str, date, freq_min, freq_max):
     freq_str = f"{freq_min}-{freq_max}Hz"
     date_str = date.strftime('%Y-%m-%d')
     file_str = f"{array_str}_{date_str}_{freq_str}"
-    path_processed = os.path.join(settings.path_processed, f"processed_output_{file_str}.pkl")
+    path_processed = os.path.join(settings.path_processed, "beamform_results", f"processed_output_{file_str}.pkl")
     return file_str, path_processed
 
 
-def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, slow_min=1/0.40, slow_max=1/0.30):
+def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, slow_min=2.5, slow_max=3.5):
     '''
     Load in beamforming results for an array and frequency band in a specified time range. Remove points with 
     unreasonable slownesses, if desired.
@@ -115,8 +119,16 @@ def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, s
     '''
     # load mulitple files if needed (otherwise, will just load 1)
     beamform_output = []
-    dates = pd.date_range(start=time_start.date(), end=time_stop.date(), freq='D')
-    for date in dates:    
+
+    # make sure times are in UTC (since mseed and beamform results stored with UTC)
+    time_start = time_start.astimezone(pytz.timezone('UTC'))
+    time_stop = time_stop.astimezone(pytz.timezone('UTC'))
+
+    # mseed files and beamform results are stored with UTC time
+    date_list = pd.date_range(start=time_start.date(), end=time_stop.date(), 
+                              freq='D', inclusive='both')
+
+    for date in date_list:    
         _, path_processed = filename_beamform(array_str, date, freq_min, freq_max)
         outputi = pd.read_pickle(path_processed)
         beamform_output.append(outputi)
@@ -125,8 +137,23 @@ def load_beamform_output(array_str, time_start, time_stop, freq_min, freq_max, s
     # extract times of interest
     beamform_output = beamform_output.loc[time_start : time_stop]
 
-    # constrain data to only points with reasonable slownesses
     if slow_min != None and slow_max != None:
-        beamform_output = beamform_output[beamform_output["Slowness"].between(slow_min, slow_max)]
+        # replace rows with non-reasonable slownesses with nans
+        beamform_output = beamform_output.mask(~beamform_output["Slowness"].between(slow_min, slow_max),
+                                               np.nan)
 
     return beamform_output
+
+def num_array_elements():
+
+    array_elements = pd.DataFrame(index=pd.date_range('2025-10-06', '2025-10-10'),
+                                  columns=['NW', 'NC', 'NE', 'SC'])
+    array_elements['NW'] = [14, 14, 13, 14, 14]
+    array_elements['NC'] = [24, 24, 24, 24, 24]
+    array_elements['NE'] = [14, 14, 14, 14, 14]
+    array_elements['SC'] = [21, 20, 20, 20, 22]
+
+    return array_elements
+
+
+
